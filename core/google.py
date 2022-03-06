@@ -1,22 +1,22 @@
 from __future__ import print_function
-import pickle
 import os
-import cgi
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.http import MediaIoBaseDownload
+from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+from googleapiclient.errors import HttpError
 
 from core import args
 from core import utilities
 
 # If modifying these scopes, delete your previously saved credentials
 # at ~/.credentials/token.pickle
-# SCOPES = 'https://www.googleapis.com/auth/drive.metadata.readonly'
-SCOPES = 'https://www.googleapis.com/auth/drive.file'
-REPO_FOLDER_NAME = 'Repositories'
+# SCOPES = ['https://www.googleapis.com/auth/drive.metadata.readonly']
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
+REPO_FOLDER_NAME = 'Repositories1'
 
 F_ID = 'id'
 F_NAME = 'name'
@@ -32,7 +32,7 @@ F_REVISIONS = 'revisions'
 F_MODIFIED_TIME = 'modifiedTime'
 
 def getMetadataFields():
-	return (F_ID, F_MIME_TYPE, F_NAME, F_TRASHED, F_SIZE, F_VERSION, F_HEAD_REVISION_ID)
+	return (F_ID, F_MIME_TYPE, F_NAME, F_TRASHED, F_SIZE, F_VERSION, F_HEAD_REVISION_ID, F_MODIFIED_TIME)
 
 def getMediaFileUpload(fileToUploadPath):
 	return MediaFileUpload(fileToUploadPath, mimetype='application/binary')
@@ -55,42 +55,37 @@ class GoogleServiceApi:
 		print("Google lib created")
 
 	def getCredentials(self):
-		"""Gets valid user credentials from storage.
-
-		If nothing has been stored, or if the stored credentials are invalid,
-		the OAuth2 flow is completed to obtain the new credentials.
-
-		Returns:
-			Credentials, the obtained credential.
+		"""Shows basic usage of the Drive v3 API.
+		Prints the names and ids of the first 10 files the user has access to.
 		"""
 		creds = None
-		home_dir = os.path.expanduser('~')
-		credential_dir = os.path.join(home_dir, '.credentials')
-		if not os.path.exists(credential_dir):
-			os.makedirs(credential_dir)
-		# The file token.pickle stores the user's access and refresh tokens, and is
+		# The file token.json stores the user's access and refresh tokens, and is
 		# created automatically when the authorization flow completes for the first
 		# time.
-		token_path = os.path.join(credential_dir, 'token.pickle')
+		credential_dir = self.getCredentialsFolder()
+		token_path = os.path.join(credential_dir, 'token.json')
+
 		if os.path.exists(token_path):
-			with open(token_path, 'rb') as token:
-				creds = pickle.load(token)
+			creds = Credentials.from_authorized_user_file(token_path, SCOPES)
 		# If there are no (valid) credentials available, let the user log in.
 		if not creds or not creds.valid:
 			if creds and creds.expired and creds.refresh_token:
 				creds.refresh(Request())
 			else:
 				credentials_path = os.path.join(credential_dir, 'credentials.json')
-				if not os.path.exists(credentials_path):
-					raise Exception("No credentials.json file found in credentials directory")
 				flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
 				creds = flow.run_local_server(port=0)
-
 			# Save the credentials for the next run
-			with open(token_path, 'wb') as token:
-				pickle.dump(creds, token)
-
+			with open(token_path, 'w') as token:
+				token.write(creds.to_json())
 		return creds
+
+	def getCredentialsFolder(self):
+		home_dir = os.path.expanduser('~')
+		credential_dir = os.path.join(home_dir, '.credentials')
+		if not os.path.exists(credential_dir):
+			os.makedirs(credential_dir)
+		return credential_dir
 
 	def getService(self):
 		print('Getting Google Api Service ...')
@@ -133,8 +128,7 @@ class GoogleServiceApi:
 			.files()
 			.update(
 				fileId=googleRepoId,
-				media_body=fileContent,
-				fields=utilities.concatenateFields(getMetadataFields()))
+				media_body=fileContent)
 			.execute())
 
 		print('Upload complete')
@@ -162,7 +156,8 @@ class GoogleServiceApi:
 		repoFolder = self.getRepoFolder()
 
 		# Write the query
-		query = F_NAME + "='" + repoFileName + "' and '" + repoFolder[F_ID] + "' in " + F_PARENTS
+		query = "{name}='{repoName}' and '{folderId}' in {parents}"\
+			.format(name=F_NAME, repoName=repoFileName, folderId=repoFolder[F_ID], parents=F_PARENTS)
 
 		# Execute the query along with the metadata fields
 		return self.getSingleQueryResult(query, getMetadataFields())
@@ -170,24 +165,21 @@ class GoogleServiceApi:
 	def executeQuery(self, queryString, fields):
 		"""Execute the given query in string format"""
 
-		query = cgi.escape(queryString)
 		filesProxy = self.getService().files()
 
-		body = {
-			'q': query,
-		}
+		fieldsList = None
+		if fields is not None:
+			fieldsList = "files({0})".format(utilities.concatenateFields(fields))
 
-		if fields is None:
-			return filesProxy.list(**body).execute()
-		else:
-			fieldsClause = "files(" + utilities.concatenateFields(fields) + ")"
-			return filesProxy.list(fields=fieldsClause, **body).execute()
+		query = filesProxy.list(q=queryString, spaces='drive', fields=fieldsList)
+
+		return query.execute()
 
 	def getSingleQueryResult(self, queryString, fields):
 		queryResult = self.executeQuery(queryString, fields)
 		files = queryResult[F_FILES]
 		nrResults = len(files)
-		print(str(nrResults) + " files found for query '" + queryString + "'")
+		print("{0} files found for query '{1}'".format(nrResults, queryString))
 
 		if nrResults == 0:
 			return None
@@ -208,8 +200,7 @@ class GoogleServiceApi:
 			.files()
 			.create(
 				media_body=fileContent,
-				body=fileBody,
-				fields=utilities.concatenateFields(getMetadataFields()))
+				body=fileBody)
 			.execute())
 
 		return result
@@ -228,7 +219,7 @@ class GoogleServiceApi:
 			while True:
 				try:
 					downloadProgress, done = mediaRequest.next_chunk()
-				except errors.HttpError as error:
+				except HttpError as error:
 					print('An error occurred: %s' % error)
 					os.remove(destinationFilePath)
 					return
@@ -282,7 +273,7 @@ class GoogleServiceApi:
 		print(str(len(revisions)) + ' revisions found for fileId=' + fileId)
 
 		if not containsRevision(revisions, fileHeadRevisionId):
-			raise errors.Error('The head revision "' + fileHeadRevisionId + '" has not been found within the file revisions')
+			raise Exception('The head revision "' + fileHeadRevisionId + '" has not been found within the file revisions')
 
 		for revision in revisions:
 			# Delete all revisions except the head revision

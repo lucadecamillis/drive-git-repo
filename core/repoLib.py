@@ -24,7 +24,10 @@ class RepoLib:
 		repoMetadata = self.getGoogleApi().getRepo(repoFileName)
 
 		# Print the info
-		print("Current version on drive (" + self.printMetadata(repoMetadata) + ")")
+		if repoMetadata is None:
+			print("No repository '{0}' saved in drive".format(repoFileName))
+		else:	
+			print("Current version on drive ({0})".format(self.printMetadata(repoMetadata)))
 
 	def sync(self):
 		print('Sync local repository from google drive')
@@ -129,8 +132,6 @@ class RepoLib:
 		"""Upload the local bundle file to google drive"""
 
 		repoFileName = self._pathLib.getBundleFileName()
-		repoLocalPath = self._pathLib.getBundleFilePath()
-		repoMetadataPath = self._pathLib.getJsonFilePath()
 
 		# Try to retrieve the given repostory from the google drive store
 		gBundleFile = self.getGoogleApi().getRepo(repoFileName)
@@ -153,8 +154,6 @@ class RepoLib:
 		if gBundleFile is None:
 			raise Exception("The repository '" + repoFileName + "' does not exist on the drive")
 
-		driveFileSize = gBundleFile[google.F_SIZE]
-		driveFileId = gBundleFile[google.F_ID]
 		print("Found repository on drive (" + self.printMetadata(gBundleFile) + ")")
 
 		# Check whether the local file exists
@@ -220,16 +219,21 @@ class RepoLib:
 			google.F_VERSION: gBundleFile[google.F_VERSION],
 			google.F_TRASHED: gBundleFile[google.F_TRASHED],
 			google.F_SIZE: gBundleFile[google.F_SIZE],
+			google.F_MODIFIED_TIME: gBundleFile[google.F_MODIFIED_TIME],
 			gitLib.FT_HEAD: head,
 		}
 		utilities.writeJson(metadata, repoMetadataPath)
 
 	def printMetadata(self, gBundleFile):
-		return ("ID: " + gBundleFile[google.F_ID] +
-			", Name: '" + gBundleFile[google.F_NAME] +
-			"', Version: " + gBundleFile[google.F_VERSION] +
-			", Size: " + gBundleFile[google.F_SIZE] +
-			" B (" + utilities.humansize(gBundleFile[google.F_SIZE]) + ")")
+		result = "ID: {id}, Name: {name}, Version: {version}, Size: {size} B ({hSize}), Modified: {modifiedTime}, HeadRevision: {headRevision}".format(\
+			id = gBundleFile[google.F_ID],\
+			name = gBundleFile[google.F_NAME],\
+			version = gBundleFile[google.F_VERSION],\
+			size = gBundleFile[google.F_SIZE],\
+			hSize = utilities.humansize(gBundleFile[google.F_SIZE]),\
+			modifiedTime = gBundleFile[google.F_MODIFIED_TIME],\
+			headRevision = gBundleFile[google.F_HEAD_REVISION_ID])
+		return result
 
 	def getGoogleApi(self):
 		"""Return an instance of the google api object"""

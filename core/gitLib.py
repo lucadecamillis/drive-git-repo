@@ -1,6 +1,5 @@
 from core import utilities
 from git import Repo
-import os
 
 FT_HEAD = 'HEAD'
 
@@ -14,7 +13,7 @@ class GitLib:
 		print("GitLib created")
 
 	def bundleRepo(self, bundleFilePath):
-		print("Bundeling repo '" + str(self.repo.git_dir) + "' to output file '" + str(bundleFilePath) + "' ...")
+		print("Bundeling repo '{0}' to output file '{1}' ...".format(self.repo.git_dir, bundleFilePath))
 
 		command = 'git --git-dir "' + self.repo.git_dir + '" bundle create "' + bundleFilePath + '" --all'
 		print("Executing command " + command)
